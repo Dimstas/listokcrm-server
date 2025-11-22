@@ -1,0 +1,27 @@
+{
+  "name": "listokcrm-auth-server",
+  "version": "1.0.0",
+  "type": "module", 
+  "main": "server.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+     "start": "node server.js"
+  },
+   "engines": {
+    "node": ">=18"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "@googleapis/sheets": "^11.1.0",
+    "body-parser": "^2.2.0",
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.0",
+    "express": "^5.1.0",
+    "googleapis": "^153.0.0",
+    "node-fetch": "^3.3.2",
+    "p-limit": "^7.2.0"
+  }
+}
