@@ -679,10 +679,10 @@ async function getContactListings(accessToken, contactId, maxRetries = 3) {
             const data = await response.json();
             
             // Успешный выход из цикла и возврат данных
-            if (data && Array.isArray(data.data)) {
+            if (data && Array.isArray(data.data) ) {
                 return data.data; 
             }
-            return data; 
+            return null//data; 
 
         } catch (error) {
             // Если произошла сетевая ошибка или другая ошибка, не связанная с 429,
@@ -1049,6 +1049,7 @@ async function aggregateSourcesForGoogleSheets(contacts, allSources, accessToken
                     listings = await getContactListings(accessToken, contact.id || contact.contact_id); 
                     
                     if( listings && listings.length > 0){
+                    console.log(listings[0].event_id,'вот')
                        totalRecordsCounts[finalSourceIdKey]++; 
                        const ev = await getEventById(accessToken,listings[0].event_id)
                        if(ev){
