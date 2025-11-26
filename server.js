@@ -432,6 +432,8 @@ app.post('/generate-report', async (req, res) => {
 
         const start = new Date(startDate);
         const end = new Date(endDate);
+        end.setHours(23, 59, 59, 999);
+
         startD = start 
         endD = end
       const filteredContacts = allContacts.filter(contact => {
