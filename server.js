@@ -1052,7 +1052,7 @@ async function aggregateSourcesForGoogleSheets(contacts, allSources, accessToken
                     console.log(listings[0].event_id,'вот',listings[0].contact_id+" ",contact.contact_id, contact.name)
                        totalRecordsCounts[finalSourceIdKey]++; 
                        const ev = await getEventById(accessToken,listings[0].event_id)
-                          console.log(evDate,'вот дата')
+                          console.log(ev.date,'вот дата')
                        if(ev){
                         const evDate = new Date(ev.date);
                         if (evDate <= endD){
