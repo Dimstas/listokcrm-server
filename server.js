@@ -448,7 +448,7 @@ app.post('/generate-report', async (req, res) => {
     // const googleSheetsFormattedData = transformListokCRMDataForGoogleSheets(filteredContacts);
     const googleSheetsFormattedData = await aggregateSourcesForGoogleSheets(filteredContacts,allSources,currentAccessToken)
 
-    // 5. Записываем данные в Google Sheets
+    // 5. Записываем данные в Google Sheets.
     const spreadsheetId = '1AMIZaR1ADV_0aVP-m80rklhXUTClsQwVB-GrVMI3YPA';  
     await writeDataToSheet(spreadsheetId, googleSheetsFormattedData);
 
