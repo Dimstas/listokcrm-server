@@ -338,7 +338,7 @@ app.post('/generate-report', async (req, res) => {
     const { startDate, endDate, branch, spreadsheetId } = req.body; // Получаем branchId и spreadsheetId из тела запроса
     
     // Проверяем, что все необходимые параметры переданы
-    if (!startDate || !endDate || !branchId || !spreadsheetId) {
+    if (!startDate || !endDate || !branch || !spreadsheetId) {
          return res.status(400).json({ error: 'startDate, endDate, branchId, and spreadsheetId are required.' });
     }
 
