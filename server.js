@@ -335,8 +335,13 @@ async function getListingsForContact(contactId, accessToken) {
 }
 // Новый эндпоинт для получения отфильтрованных клиентов, запроса записей и записи в Google Sheets
 app.post('/generate-report', async (req, res) => {
-    const { startDate, endDate, source, branch } = req.body;
+    const { startDate, endDate, branchId, spreadsheetId } = req.body; // Получаем branchId и spreadsheetId из тела запроса
     
+    // Проверяем, что все необходимые параметры переданы
+    if (!startDate || !endDate || !branchId || !spreadsheetId) {
+         return res.status(400).json({ error: 'startDate, endDate, branchId, and spreadsheetId are required.' });
+    }
+
     const authHeader = req.headers.authorization;
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
         // Если клиент не прислал токен в заголовке, это 401
@@ -347,11 +352,8 @@ app.post('/generate-report', async (req, res) => {
     // ВНИМАНИЕ: Мы сохраним логику обновления токена, но будем обновлять ГЛОБАЛЬНЫЕ
     // токены (accessToken, refreshToken) только для простоты прототипа.
 
-      let allContacts = [];
-    let filteredContacts = [];
-
-        allSources = await getSourcesFromListokCRM(clientAccessToken);
-        allPasses = await getAllPasses(clientAccessToken)
+    allSources = await getSourcesFromListokCRM(clientAccessToken);
+    allPasses = await getAllPasses(clientAccessToken)
     // Переменная для работы в текущем запросе
     let currentAccessToken = clientAccessToken;
 
@@ -432,35 +434,47 @@ app.post('/generate-report', async (req, res) => {
 
         const start = new Date(startDate);
         const end = new Date(endDate);
+        // Устанавливаем время end на конец дня (23:59:59.999), чтобы включить всю дату
         end.setHours(23, 59, 59, 999);
 
-        startD = start 
-        endD = end
-      const filteredContacts = allContacts.filter(contact => {
-      if (!contact.created_at) return false;
-      const createdAt = new Date(contact.created_at);
-      return createdAt >= start && createdAt <= end;
-    });
+        startD = start;
+        endD = end;
 
-    console.log(`Найдено ${filteredContacts.length} контактов в указанный период. ${allSources}`);
+        // Фильтрация: сначала по дате, затем по филиалу (added_office_id)
+        const filteredContacts = allContacts.filter(contact => {
+            // Проверка даты
+            if (!contact.created_at) return false;
+            const createdAt = new Date(contact.created_at);
+            const dateInRange = createdAt >= start && createdAt <= end;
 
-    // 4. Преобразуем отфильтрованные данные для Google Sheets
-    // const googleSheetsFormattedData = transformListokCRMDataForGoogleSheets(filteredContacts);
-    const googleSheetsFormattedData = await aggregateSourcesForGoogleSheets(filteredContacts,allSources,currentAccessToken)
+            console.log(contact.added_office_id, 'вот id')
+            let officeMatches
+            if(branchId === 'All'){
+              officeMatches =  true
+            } 
+            else {
+                officeMatches = contact.added_office_id == branchId;
+              } // Используем == для нестрогого сравнения числа и строки
 
-    // 5. Записываем данные в Google Sheets.
-    const spreadsheetId = '1AMIZaR1ADV_0aVP-m80rklhXUTClsQwVB-GrVMI3YPA';  
-    await writeDataToSheet(spreadsheetId, googleSheetsFormattedData);
+            return dateInRange && officeMatches; // И дата, и филиал должны совпадать
+        });
 
-    try {
-    const sheetId = await getSheetId(spreadsheetId);
- 
-    await formatSheet(spreadsheetId, sheetId); 
+        console.log(`Найдено ${filteredContacts.length} контактов в указанный период и филиале. ${allSources}`);
 
-} catch (formatError) {
-    console.warn('Could not auto-resize columns:', formatError.message);
-    // Продолжаем выполнение, так как запись данных прошла успешно
-}
+        // 4. Преобразуем отфильтрованные данные для Google Sheets
+        // const googleSheetsFormattedData = transformListokCRMDataForGoogleSheets(filteredContacts);
+        const googleSheetsFormattedData = await aggregateSourcesForGoogleSheets(filteredContacts,allSources,currentAccessToken)
+
+        // 5. Записываем данные в Google Sheets, используя ID из тела запроса
+        await writeDataToSheet(spreadsheetId, googleSheetsFormattedData);
+
+        try {
+            const sheetId = await getSheetId(spreadsheetId);
+            await formatSheet(spreadsheetId, sheetId); 
+        } catch (formatError) {
+            console.warn('Could not auto-resize columns:', formatError.message);
+            // Продолжаем выполнение, так как запись данных прошла успешно
+        }
         res.json({ message: `Успешно записан отчет по ${filteredContacts.length} контактам в Google Таблицу.` });
 
     } catch (error) {
