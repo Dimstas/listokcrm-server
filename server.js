@@ -345,16 +345,16 @@ app.post('/generate-report', async (req, res) => {
     let branchId;
     switch (branch) {
         case '79 Гвардейской Дивизии':
-            branchId = 'all'; // Замените на реальный ID
+            branchId = '4'; // Замените на реальный ID
             break;
         case 'Никитина 8А':
-            branchId = '8A'; // Замените на реальный ID
+            branchId = '2'; // Замените на реальный ID
             break;
         case 'Новосибирская 43Б':
-            branchId = '43B'; // Замените на реальный ID
+            branchId = '3'; // Замените на реальный ID
             break;
-        case 'all':
-            branchId = null; // Или используйте специальное значение, если нужно обработать "все"
+        case 'Все':
+            branchId = 'all'; // Или используйте специальное значение, если нужно обработать "все"
             break;
         default:
             return res.status(400).json({ error: `Unknown branch: ${branch}` });
