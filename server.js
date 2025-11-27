@@ -353,7 +353,7 @@ app.post('/generate-report', async (req, res) => {
         case 'Новосибирская 43Б':
             branchId = '3'; // Замените на реальный ID
             break;
-        case 'Все':
+        case 'all':
             branchId = 'all'; // Или используйте специальное значение, если нужно обработать "все"
             break;
         default:
