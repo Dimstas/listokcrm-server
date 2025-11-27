@@ -464,7 +464,6 @@ app.post('/generate-report', async (req, res) => {
             const createdAt = new Date(contact.created_at);
             const dateInRange = createdAt >= start && createdAt <= end;
 
-            console.log(contact.added_office_id, 'вот id')
             let officeMatches
             if(branchId === 'all'){
               officeMatches =  true
@@ -475,6 +474,11 @@ app.post('/generate-report', async (req, res) => {
 
             return dateInRange && officeMatches; // И дата, и филиал должны совпадать
         });
+
+        for(const cont of filteredContacts){
+                      console.log(cont.added_office_id, 'вот id')
+
+        }
 
         console.log(`Найдено ${filteredContacts.length} контактов в указанный период и филиале. ${allSources}`);
 
@@ -1082,11 +1086,11 @@ async function aggregateSourcesForGoogleSheets(contacts, allSources, accessToken
                     listings = await getContactListings(accessToken, contact.id || contact.contact_id); 
                     
                     if( listings && listings.length > 0){
-                    console.log(listings[0].event_id,'вот',listings[0].contact_id+" ",contact.contact_id, contact.name)
+                    // console.log(listings[0].event_id,'вот',listings[0].contact_id+" ",contact.contact_id, contact.name)
                        totalRecordsCounts[finalSourceIdKey]++; 
                        const ev = await getEventById(accessToken,listings[0].event_id)
-                          console.log(ev.date,'вот дата')
-                          console.log(ev,'вот самое важное')
+                          // console.log(ev.date,'вот дата')
+                          // console.log(ev,'вот самое важное')
 
                        if(ev){
                         const evDate = new Date(ev.date);
@@ -1300,4 +1304,4 @@ app.listen(port, () => {
 
 
 
-// 4:50  5:10
+ 
