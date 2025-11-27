@@ -335,13 +335,30 @@ async function getListingsForContact(contactId, accessToken) {
 }
 // Новый эндпоинт для получения отфильтрованных клиентов, запроса записей и записи в Google Sheets
 app.post('/generate-report', async (req, res) => {
-    const { startDate, endDate, branchId, spreadsheetId } = req.body; // Получаем branchId и spreadsheetId из тела запроса
+    const { startDate, endDate, branch, spreadsheetId } = req.body; // Получаем branchId и spreadsheetId из тела запроса
     
     // Проверяем, что все необходимые параметры переданы
     if (!startDate || !endDate || !branchId || !spreadsheetId) {
          return res.status(400).json({ error: 'startDate, endDate, branchId, and spreadsheetId are required.' });
     }
 
+    let branchId;
+    switch (branch) {
+        case '79 Гвардейской Дивизии':
+            branchId = 'all'; // Замените на реальный ID
+            break;
+        case 'Никитина 8А':
+            branchId = '8A'; // Замените на реальный ID
+            break;
+        case 'Новосибирская 43Б':
+            branchId = '43B'; // Замените на реальный ID
+            break;
+        case 'all':
+            branchId = null; // Или используйте специальное значение, если нужно обработать "все"
+            break;
+        default:
+            return res.status(400).json({ error: `Unknown branch: ${branch}` });
+    }
     const authHeader = req.headers.authorization;
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
         // Если клиент не прислал токен в заголовке, это 401
@@ -449,7 +466,7 @@ app.post('/generate-report', async (req, res) => {
 
             console.log(contact.added_office_id, 'вот id')
             let officeMatches
-            if(branchId === 'All'){
+            if(branchId === 'all'){
               officeMatches =  true
             } 
             else {
