@@ -542,7 +542,7 @@ async function formatSheet(spreadsheetId, sheetId) {
     });
 
    // --- B. Окрашивание столбцов ручного ввода (B, D) ---
-const inputColumns = [2, 7, 10, 12]; // B, D
+const inputColumns = [2, 7, 10, 12, 15, 16, 17]; 
 const yellowColor = { red: 0.98, green: 0.93, blue: 0.8 };
 
 inputColumns.forEach(index => {
@@ -1190,6 +1190,13 @@ async function aggregateSourcesForGoogleSheets(contacts, allSources, accessToken
         const formulaL = `=ЕСЛИ(K${rowNum}=0; 0; M${rowNum}/K${rowNum})`;
         const formulaN = '';
         const formulaO = `=ЕСЛИ(C${rowNum}=0; 0; E${rowNum}/M${rowNum})`; 
+        const formulaT = `=ЕСЛИ(R${rowNum}=0; 0; S${rowNum}/R${rowNum})`; 
+        const formulaU = `=ЕСЛИ(C${rowNum}=0; 0; P${rowNum}/C${rowNum})`; 
+        const formulaV = `=ЕСЛИ(P${rowNum}=0; 0; Q${rowNum}/P${rowNum})`; 
+        const formulaW = `=ЕСЛИ(Q${rowNum}=0; 0; R${rowNum}/Q${rowNum})`; 
+        const formulaX = `=ЕСЛИ(C${rowNum}=0; 0; R${rowNum}/C${rowNum})`; 
+
+
 
         
         const row = [
@@ -1208,7 +1215,15 @@ async function aggregateSourcesForGoogleSheets(contacts, allSources, accessToken
             totalBuy,
             formulaN,
             formulaO,
-            mounthRecords, mounthAdmissions, mounthBuys, '', '', '', '', '', 
+            mounthRecords,
+            mounthAdmissions, 
+            mounthBuys,
+            '', 
+            formulaT,
+            formulaU,
+            formulaV,
+            formulaW,
+            formulaX,
         ];
         
         googleSheetsData.push(row);
