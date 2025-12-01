@@ -458,6 +458,7 @@ app.post('/generate-report', async (req, res) => {
         endD = end; 
 
         // Фильтрация: сначала по дате, затем по филиалу (added_office_id)
+        console.log(allContacts.length, 'столько контактов всего')
         const filteredContacts = allContacts.filter(contact => {
             // Проверка даты
             if (!contact.created_at) return false;
