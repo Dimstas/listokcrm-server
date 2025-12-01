@@ -472,7 +472,7 @@ app.post('/generate-report', async (req, res) => {
               } 
               else {
                   officeMatches = contact.added_office_id == branchId;
-                } // Используем == для нестрогого сравнения числа и строки
+                } 
             }
 
             return dateInRange && officeMatches; // И дата, и филиал должны совпадать
