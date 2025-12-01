@@ -455,7 +455,7 @@ app.post('/generate-report', async (req, res) => {
         end.setHours(23, 59, 59, 999);
 
         startD = start;
-        endD = end;
+        endD = end; 
 
         // Фильтрация: сначала по дате, затем по филиалу (added_office_id)
         const filteredContacts = allContacts.filter(contact => {
