@@ -464,13 +464,16 @@ app.post('/generate-report', async (req, res) => {
             const createdAt = new Date(contact.created_at);
             const dateInRange = createdAt >= start && createdAt <= end;
 
-            let officeMatches
-            if(branchId === 'all'){
-              officeMatches =  true
-            } 
-            else {
-                officeMatches = contact.added_office_id == branchId;
-              } // Используем == для нестрогого сравнения числа и строки
+            let officeMatches = false
+            if(dateInRange){
+              console.log(branchId,'branchId')
+              if(branchId === 'all'){
+                officeMatches =  true
+              } 
+              else {
+                  officeMatches = contact.added_office_id == branchId;
+                } // Используем == для нестрогого сравнения числа и строки
+            }
 
             return dateInRange && officeMatches; // И дата, и филиал должны совпадать
         });
