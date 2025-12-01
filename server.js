@@ -1119,24 +1119,7 @@ async function aggregateSourcesForGoogleSheets(contacts, allSources, accessToken
                             // if (passName && !excludedPassesNames.includes(passName)){
                       }
                       }
-                    // if (listings && listings.length > 0 && contact.last_admission_date && contact.last_admission_date !== 0) {
-                    //     totalAdmissionsCount[finalSourceIdKey]++;
-                    //     const ev = await getEventById(accessToken,contact.last_admission_date)
-                    //    if(ev){
-                    //     const evDate = new Date(ev.date);
-                    //     if (evDate <= endD){
-                    //       totalMounthAdmissionsCount[finalSourceIdKey]++
-                    //       // console.log(evDate,'  <  ', endD)
-                    //     }
-                    //   }
-                    // }
-                    // if (listings && listings.length > 0 && contact.last_admission_date && contact.last_admission_date !== 0 && contact.last_pass_purchased && contact.last_pass_purchased !== 0 ) {
-                    //   const pass = await getContactSpecificPass(accessToken, contact.id || contact.contact_id, contact.last_pass_purchased)
-                    //   const passName = getPassNameFromPass(pass)
-                    //   if (passName && !excludedPassesNames.includes(passName)){
-                    //     totalBuys[finalSourceIdKey]++;
-                    //   }
-                    // }
+                   
                 } catch (error) {
                     console.warn(`Skipping listings for contact ${contact.id}: ${error.message}`);
                 }
