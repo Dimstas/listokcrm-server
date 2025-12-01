@@ -464,7 +464,7 @@ app.post('/generate-report', async (req, res) => {
             const createdAt = new Date(contact.created_at);
             const dateInRange = createdAt >= start && createdAt <= end;
 
-            let officeMatches = false
+            let officeMatches = true
             if(dateInRange){
               console.log(branchId,'branchId')
               if(branchId === 'all'){
@@ -479,7 +479,7 @@ app.post('/generate-report', async (req, res) => {
         });
 
         for(const cont of filteredContacts){
-                      console.log(cont.added_office_id, 'вот id')
+                      // console.log(cont.added_office_id, 'вот id')
 
         }
 
