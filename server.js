@@ -813,6 +813,7 @@ async function getEventById(accessToken, eventId, maxRetries = 3) {
         throw new Error("Event ID must be provided.");
     }
     
+    // Убран пробел в конце baseURL
     const baseURL = 'https://an8242.listokcrm.ru/api/external/v2';
     const url = `${baseURL}/events/${eventId}`;
 
@@ -850,6 +851,13 @@ async function getEventById(accessToken, eventId, maxRetries = 3) {
                 }
             }
 
+            // --- НОВОЕ: Проверка 404 ---
+            if (response.status === 404) {
+                const errorText = await response.text();
+                // Немедленно выбрасываем ошибку, не пытаясь повторить
+                throw new Error(`Event with ID ${eventId} not found: ${errorText}`);
+            }
+
             if (!response.ok) {
                 const errorText = await response.text();
                 throw new Error(`Failed to fetch event ${eventId}. Status: ${response.status}. Response: ${errorText}`);
@@ -861,9 +869,10 @@ async function getEventById(accessToken, eventId, maxRetries = 3) {
             return data;
 
         } catch (error) {
-            // Если произошла сетевая ошибка или другая ошибка, не связанная с 429,
+            // --- ИЗМЕНЕНО: Добавлено исключение для 404 ---
+            // Если произошла сетевая ошибка или другая ошибка, не связанная с 429 или 404,
             // и это не последняя попытка, можно попробовать снова после короткой паузы.
-            if (attempt === maxRetries - 1 || error.message.includes('API Rate Limit')) {
+            if (attempt === maxRetries - 1 || error.message.includes('API Rate Limit') || error.message.includes('not found')) {
                 throw error;
             }
             console.warn(`Temporary error on attempt ${attempt + 1}: ${error.message}. Retrying...`);
@@ -875,7 +884,7 @@ async function getEventById(accessToken, eventId, maxRetries = 3) {
     // Этот код должен быть недостижим, если maxRetries > 0, но для безопасности:
     throw new Error(`Failed to fetch event ${eventId} after ${maxRetries} attempts.`);
 }
- 
+
 async function getContactAdmissions(accessToken, contactId, maxRetries = 3) {
     if (!contactId) {
         throw new Error("Contact ID must be provided.");
