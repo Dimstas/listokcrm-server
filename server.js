@@ -20,7 +20,7 @@ const corsOptions = {
 };
 
 // --- Настройка лимита Rate Limit ---
-const CONCURRENCY_LIMIT = 1; // Одновременно 1 активных запросов к API Listok CRM
+const CONCURRENCY_LIMIT = 2; // Одновременно 1 активных запросов к API Listok CRM
 const limit = pLimit(CONCURRENCY_LIMIT);
 
 app.use(cors(corsOptions));
