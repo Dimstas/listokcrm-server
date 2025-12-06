@@ -335,42 +335,39 @@ async function getListingsForContact(contactId, accessToken) {
 }
 // Новый эндпоинт для получения отфильтрованных клиентов, запроса записей и записи в Google Sheets
 app.post('/generate-report', async (req, res) => {
-    const { startDate, endDate, branch, spreadsheetId } = req.body; // Получаем branchId и spreadsheetId из тела запроса
+    // --- ИЗМЕНЕНИЕ 1: Получаем refreshToken из тела запроса ---
+    const { startDate, endDate, branch, spreadsheetId, refreshToken: refreshTokenFromClient } = req.body; // Добавлен refreshToken
     
-    // Проверяем, что все необходимые параметры переданы
-    if (!startDate || !endDate || !branch || !spreadsheetId) {
-         return res.status(400).json({ error: 'startDate, endDate, branchId, and spreadsheetId are required.' });
+    // Проверяем, что все необходимые параметры переданы (включая refreshToken)
+    if (!startDate || !endDate || !branch || !spreadsheetId || !refreshTokenFromClient) { // Проверка refreshToken
+         return res.status(400).json({ error: 'startDate, endDate, branchId, spreadsheetId, and refreshToken are required.' }); // Сообщение об ошибке обновлено
     }
 
     let branchId;
     switch (branch) {
         case '79 Гвардейской Дивизии':
-            branchId = '4'; // Замените на реальный ID
+            branchId = '4';
             break;
         case 'Никитина 8А':
-            branchId = '2'; // Замените на реальный ID
+            branchId = '2';
             break;
         case 'Новосибирская 43Б':
-            branchId = '3'; // Замените на реальный ID
+            branchId = '3';
             break;
         case 'all':
-            branchId = 'all'; // Или используйте специальное значение, если нужно обработать "все"
+            branchId = 'all';
             break;
         default:
             return res.status(400).json({ error: `Unknown branch: ${branch}` });
     }
     const authHeader = req.headers.authorization;
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
-        // Если клиент не прислал токен в заголовке, это 401
         return res.status(401).json({ error: 'Authorization token is missing or malformed.' });
     }
-    const clientAccessToken = authHeader.split(' ')[1]; // Токен, который прислал клиент
-    
-    // ВНИМАНИЕ: Мы сохраним логику обновления токена, но будем обновлять ГЛОБАЛЬНЫЕ
-    // токены (accessToken, refreshToken) только для простоты прототипа.
+    const clientAccessToken = authHeader.split(' ')[1];
 
-    allSources = await getSourcesFromListokCRM(clientAccessToken);
-    allPasses = await getAllPasses(clientAccessToken)
+    // allSources = await getSourcesFromListokCRM(clientAccessToken); // Не используем глобальные переменные здесь
+    // allPasses = await getAllPasses(clientAccessToken)            // Не используем глобальные переменные здесь
     // Переменная для работы в текущем запросе
     let currentAccessToken = clientAccessToken;
 
@@ -380,7 +377,7 @@ app.post('/generate-report', async (req, res) => {
         let hasMore = true;
         let retryCount = 0;
         const MAX_RETRIES = 1; // Попытка обновить токен один раз
-        const baseURL = 'https://an8242.listokcrm.ru/api/external/v2/contacts'; 
+        const baseURL = 'https://an8242.listokcrm.ru/api/external/v2/contacts'; // Убран пробел в конце
 
         while (hasMore) {
             const url = `${baseURL}?page=${page}`;
@@ -392,7 +389,7 @@ app.post('/generate-report', async (req, res) => {
                     const response = await fetch(url, {
                         method: 'GET',
                         headers: {
-                            'Authorization': `Bearer ${currentAccessToken}`, // Используем токен клиента
+                            'Authorization': `Bearer ${currentAccessToken}`, // Используем токен клиента или обновлённый
                             'Content-Type': 'application/json',
                             'Accept': 'application/json',
                             'X-Requested-With': 'XMLHttpRequest'
@@ -404,12 +401,13 @@ app.post('/generate-report', async (req, res) => {
                         if (retryCount === 0) {
                             console.log('API returned 401. Attempting to refresh token...');
                             
-                            // Обновляем токен и пробуем снова
-                            if (!refreshToken) {
+                            // --- ИЗМЕНЕНИЕ 2: Используем refreshToken из тела запроса ---
+                            if (!refreshTokenFromClient) { // Проверяем refreshToken из тела запроса
                                 throw new Error('Refresh token is missing. Cannot continue.');
                             }
-                            const newTokens = await refreshAccessToken(refreshToken); // Обновляет глобальные токены
+                            const newTokens = await refreshAccessToken(refreshTokenFromClient); // Используем refreshToken из тела запроса
                             currentAccessToken = newTokens.accessToken; // Используем новый токен
+                            // refreshToken = newTokens.refreshToken; // Не обновляем глобальную переменную!
                             retryCount++; // Увеличиваем счетчик попыток
                             continue; // Начать цикл заново с новым токеном
                         } else {
@@ -447,6 +445,10 @@ app.post('/generate-report', async (req, res) => {
             if (!hasMore) break; 
         } // конец цикла while (пагинация)
 
+        // --- ИЗМЕНЕНИЕ 3: Загружаем справочники после получения валидного токена ---
+        const allSources = await getSourcesFromListokCRM(currentAccessToken);
+        const allPasses = await getAllPasses(currentAccessToken);
+
         // ... (Остальная логика: фильтрация, агрегация, запись в Google Sheets) ...
 
         const start = new Date(startDate);
@@ -454,8 +456,8 @@ app.post('/generate-report', async (req, res) => {
         // Устанавливаем время end на конец дня (23:59:59.999), чтобы включить всю дату
         end.setHours(23, 59, 59, 999);
 
-        startD = start;
-        endD = end; 
+        // startD = start; // Не используем глобальные переменные
+        // endD = end; 
 
         // Фильтрация: сначала по дате, затем по филиалу (added_office_id)
         console.log(allContacts.length, 'столько контактов всего')
@@ -488,7 +490,8 @@ app.post('/generate-report', async (req, res) => {
 
         // 4. Преобразуем отфильтрованные данные для Google Sheets
         // const googleSheetsFormattedData = transformListokCRMDataForGoogleSheets(filteredContacts);
-        const googleSheetsFormattedData = await aggregateSourcesForGoogleSheets(filteredContacts,allSources,currentAccessToken)
+        // --- ИЗМЕНЕНИЕ 4: Передаём endD как параметр в aggregateSourcesForGoogleSheets ---
+        const googleSheetsFormattedData = await aggregateSourcesForGoogleSheets(filteredContacts, allSources, currentAccessToken, end); // Передаём 'end' вместо глобальной endD
 
         // 5. Записываем данные в Google Sheets, используя ID из тела запроса
         await writeDataToSheet(spreadsheetId, googleSheetsFormattedData);
