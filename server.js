@@ -23,6 +23,14 @@ const corsOptions = {
 const CONCURRENCY_LIMIT = 2; // Одновременно 1 активных запросов к API Listok CRM
 const limit = pLimit(CONCURRENCY_LIMIT);
 
+// --- НОВОЕ: Хранилище задач ---
+let reportTasks = new Map(); // Используем Map для хранения задач { taskId -> { status, result, error, progress, message } }
+
+// --- НОВОЕ: Уникальный ID для задачи ---
+function generateTaskId() {
+  return Date.now().toString() + Math.random().toString(36).substr(2, 9);
+}
+
 app.use(cors(corsOptions));
 
 app.use(express.json());
@@ -79,6 +87,165 @@ async function writeDataToSheet(spreadsheetId, data) {
   }
 }
 
+async function processReportInBackground(taskId, startDate, endDate, branchId, spreadsheetId, refreshTokenFromClient, clientAccessToken) {
+    // Обновляем статус задачи
+    reportTasks.set(taskId, { status: 'processing', progress: 5, message: 'Loading sources and passes...' });
+
+    try {
+        // --- ОБНОВЛЕНИЕ ТОКЕНА ---
+        let currentAccessToken = clientAccessToken;
+        let retryCount = 0;
+        const MAX_RETRIES = 1;
+        let sources = null;
+        let passes = null;
+
+        while (retryCount <= MAX_RETRIES) {
+            try {
+                // Попробовать вызвать sources/passes с currentAccessToken
+                sources = await getSourcesFromListokCRM(currentAccessToken);
+                passes = await getAllPasses(currentAccessToken);
+                // Если успех, выйти из цикла
+                break;
+            } catch (fetchError) {
+                if (fetchError.message.includes('401') && retryCount === 0) {
+                    console.log('Initial token failed, attempting refresh...');
+                    if (!refreshTokenFromClient) {
+                        throw new Error('Refresh token is missing. Cannot continue.');
+                    }
+                    const newTokens = await refreshAccessToken(refreshTokenFromClient);
+                    currentAccessToken = newTokens.accessToken;
+                    retryCount++;
+                    continue; // Повторить вызовы sources/passes
+                } else {
+                    throw fetchError; // Если не 401 или больше попыток, бросить ошибку
+                }
+            }
+        }
+
+        // --- ОБНОВЛЕНИЕ СТАТУСА ---
+        reportTasks.set(taskId, { status: 'processing', progress: 10, message: 'Loading all contacts...' });
+
+        // --- ЗАГРУЗКА КОНТАКТОВ (СТАРАЯ ЛОГИКА) ---
+        let allContacts = [];
+        let page = 1;
+        let hasMore = true;
+        const baseURL = 'https://an8242.listokcrm.ru/api/external/v2/contacts';
+
+        while (hasMore) {
+            const url = `${baseURL}?page=${page}`;
+            let success = false;
+            let retryCountInner = 0;
+            const MAX_RETRIES_INNER = 1;
+
+            // Запускаем цикл попыток (одна попытка, плюс одна попытка после обновления токена)
+            while (!success && retryCountInner <= MAX_RETRIES_INNER) {
+                try {
+                    const response = await fetch(url, {
+                        method: 'GET',
+                        headers: {
+                            'Authorization': `Bearer ${currentAccessToken}`, // Используем токен клиента или обновлённый
+                            'Content-Type': 'application/json',
+                            'Accept': 'application/json',
+                            'X-Requested-With': 'XMLHttpRequest'
+                        }
+                    });
+
+                    if (response.status === 401) {
+                        // Токен истек или невалиден:
+                        if (retryCountInner === 0) {
+                            console.log('API returned 401. Attempting to refresh token...');
+
+                            // Обновляем токен и пробуем снова
+                            if (!refreshTokenFromClient) { // Используем refreshToken, переданный в функцию
+                                throw new Error('Refresh token is missing. Cannot continue.');
+                            }
+                            const newTokens = await refreshAccessToken(refreshTokenFromClient); // Обновляет глобальные токены (или возвращает новые)
+                            currentAccessToken = newTokens.accessToken; // Используем новый токен
+                            // refreshToken = newTokens.refreshToken; // Не обновляем глобальную переменную!
+                            retryCountInner++; // Увеличиваем счетчик попыток
+                            continue; // Начать цикл заново с новым токеном
+                        } else {
+                            // Если и после обновления 401, то ошибка
+                            throw new Error('Failed to refresh token or access token is still invalid.');
+                        }
+                    }
+
+                    if (!response.ok) {
+                        // Другие API ошибки (400, 500 и т.д.)
+                        const errorData = await response.json();
+                        throw new Error(`API Error: ${response.status} - ${errorData.error_description || errorData.error || 'Unknown error'}`);
+                    }
+
+                    // Успех, выходим из цикла retry
+                    const data = await response.json();
+                    success = true;
+
+                    if (data && data.data && data.data.length > 0) {
+                        allContacts = allContacts.concat(data.data);
+                        page++;
+                    } else {
+                        hasMore = false;
+                    }
+
+                } catch (error) {
+                    // Перехват ошибки обновления или другой критической ошибки
+                    console.error('Error fetching page or refreshing token:', error);
+                    hasMore = false; // Прерываем внешний цикл пагинации
+                    throw error; // Бросаем ошибку в основной catch-блок
+                }
+            } // конец цикла retry
+
+            // Если успех был, но hasMore стал false в теле if (data...), выходим из while
+            if (!hasMore) break;
+        } // конец цикла while (пагинация)
+
+        // --- ОБНОВЛЕНИЕ СТАТУСА ---
+        reportTasks.set(taskId, { status: 'processing', progress: 30, message: `Loaded ${allContacts.length} contacts. Filtering...` });
+
+        // --- ФИЛЬТРАЦИЯ ---
+        const start = new Date(startDate);
+        const end = new Date(endDate);
+        // Устанавливаем время end на конец дня (23:59:59.999), чтобы включить всю дату
+        end.setHours(23, 59, 59, 999);
+
+        const filteredContacts = allContacts.filter(contact => {
+            if (!contact.created_at) return false;
+            const createdAt = new Date(contact.created_at);
+            const dateInRange = createdAt >= start && createdAt <= end;
+            let officeMatches = true;
+            if (branchId !== 'all') {
+                officeMatches = contact.added_office_id == branchId;
+            }
+            return dateInRange && officeMatches;
+        });
+
+        // --- ОБНОВЛЕНИЕ СТАТУСА ---
+        reportTasks.set(taskId, { status: 'processing', progress: 40, message: `Filtered to ${filteredContacts.length} contacts. Aggregating...` });
+
+        // --- АГРЕГАЦИЯ ---
+        // ВАЖНО: Передаём end как параметр
+        const googleSheetsFormattedData = await aggregateSourcesForGoogleSheets(filteredContacts, sources, currentAccessToken, end);
+
+        // --- ОБНОВЛЕНИЕ СТАТУСА ---
+        reportTasks.set(taskId, { status: 'processing', progress: 95, message: 'Writing to Google Sheets...' });
+
+        // --- ЗАПИСЬ В ТАБЛИЦУ ---
+        await writeDataToSheet(spreadsheetId, googleSheetsFormattedData);
+        try {
+            const sheetId = await getSheetId(spreadsheetId);
+            await formatSheet(spreadsheetId, sheetId);
+        } catch (formatError) {
+            console.warn('Could not auto-resize columns:', formatError.message);
+        }
+
+        // --- ОБНОВЛЕНИЕ СТАТУСА ---
+        reportTasks.set(taskId, { status: 'completed', progress: 100, message: `Report for ${filteredContacts.length} contacts written successfully.`, result: `Successfully written report for ${filteredContacts.length} contacts.` });
+
+    } catch (error) {
+        console.error('Error processing report in background:', error);
+        reportTasks.set(taskId, { status: 'error', progress: 0, message: error.message, error: error.message });
+    }
+}
 // Функция для получения источников из ListokCRM
 async function getSourcesFromListokCRM(accessToken) {
   try {
@@ -334,13 +501,14 @@ async function getListingsForContact(contactId, accessToken) {
   }
 }
 // Новый эндпоинт для получения отфильтрованных клиентов, запроса записей и записи в Google Sheets
+// --- ИЗМЕНЁННЫЙ: Эндпоинт запуска задачи ---
 app.post('/generate-report', async (req, res) => {
-    // --- ИЗМЕНЕНИЕ 1: Получаем refreshToken из тела запроса ---
-    const { startDate, endDate, branch, spreadsheetId, refreshToken: refreshTokenFromClient } = req.body; // Добавлен refreshToken
-    
+    // Получаем refreshToken из тела запроса
+    const { startDate, endDate, branch, spreadsheetId, refreshToken: refreshTokenFromClient } = req.body;
+
     // Проверяем, что все необходимые параметры переданы (включая refreshToken)
-    if (!startDate || !endDate || !branch || !spreadsheetId || !refreshTokenFromClient) { // Проверка refreshToken
-         return res.status(400).json({ error: 'startDate, endDate, branchId, spreadsheetId, and refreshToken are required.' }); // Сообщение об ошибке обновлено
+    if (!startDate || !endDate || !branch || !spreadsheetId || !refreshTokenFromClient) {
+         return res.status(400).json({ error: 'startDate, endDate, branchId, spreadsheetId, and refreshToken are required.' });
     }
 
     let branchId;
@@ -360,158 +528,53 @@ app.post('/generate-report', async (req, res) => {
         default:
             return res.status(400).json({ error: `Unknown branch: ${branch}` });
     }
+
     const authHeader = req.headers.authorization;
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
         return res.status(401).json({ error: 'Authorization token is missing or malformed.' });
     }
     const clientAccessToken = authHeader.split(' ')[1];
 
-    // allSources = await getSourcesFromListokCRM(clientAccessToken); // Не используем глобальные переменные здесь
-    // allPasses = await getAllPasses(clientAccessToken)            // Не используем глобальные переменные здесь
-    // Переменная для работы в текущем запросе
-    let currentAccessToken = clientAccessToken;
+    // Генерируем ID задачи
+    const taskId = generateTaskId();
 
-    try {
-        let allContacts = [];
-        let page = 1;
-        let hasMore = true;
-        let retryCount = 0;
-        const MAX_RETRIES = 1; // Попытка обновить токен один раз
-        const baseURL = 'https://an8242.listokcrm.ru/api/external/v2/contacts'; // Убран пробел в конце
+    // Создаём запись о задаче
+    reportTasks.set(taskId, { status: 'processing', progress: 0, message: 'Initial processing...' });
 
-        while (hasMore) {
-            const url = `${baseURL}?page=${page}`;
-            let success = false;
-            
-            // Запускаем цикл попыток (одна попытка, плюс одна попытка после обновления токена)
-            while (!success && retryCount <= MAX_RETRIES) {
-                try {
-                    const response = await fetch(url, {
-                        method: 'GET',
-                        headers: {
-                            'Authorization': `Bearer ${currentAccessToken}`, // Используем токен клиента или обновлённый
-                            'Content-Type': 'application/json',
-                            'Accept': 'application/json',
-                            'X-Requested-With': 'XMLHttpRequest'
-                        }
-                    });
+    // Запускаем асинхронную обработку в фоне
+    processReportInBackground(taskId, startDate, endDate, branchId, spreadsheetId, refreshTokenFromClient, clientAccessToken);
 
-                    if (response.status === 401) {
-                        // Токен истек или невалиден:
-                        if (retryCount === 0) {
-                            console.log('API returned 401. Attempting to refresh token...');
-                            
-                            // --- ИЗМЕНЕНИЕ 2: Используем refreshToken из тела запроса ---
-                            if (!refreshTokenFromClient) { // Проверяем refreshToken из тела запроса
-                                throw new Error('Refresh token is missing. Cannot continue.');
-                            }
-                            const newTokens = await refreshAccessToken(refreshTokenFromClient); // Используем refreshToken из тела запроса
-                            currentAccessToken = newTokens.accessToken; // Используем новый токен
-                            // refreshToken = newTokens.refreshToken; // Не обновляем глобальную переменную!
-                            retryCount++; // Увеличиваем счетчик попыток
-                            continue; // Начать цикл заново с новым токеном
-                        } else {
-                            // Если и после обновления 401, то ошибка
-                            throw new Error('Failed to refresh token or access token is still invalid.');
-                        }
-                    }
-
-                    if (!response.ok) {
-                        // Другие API ошибки (400, 500 и т.д.)
-                        const errorData = await response.json();
-                        throw new Error(`API Error: ${response.status} - ${errorData.error_description || errorData.error || 'Unknown error'}`);
-                    }
-                    
-                    // Успех, выходим из цикла retry
-                    const data = await response.json();
-                    success = true; 
-                    
-                    if (data && data.data && data.data.length > 0) {
-                        allContacts = allContacts.concat(data.data);
-                        page++;
-                    } else {
-                        hasMore = false;
-                    }
-
-                } catch (error) {
-                    // Перехват ошибки обновления или другой критической ошибки
-                    console.error('Error fetching page or refreshing token:', error);
-                    hasMore = false; // Прерываем внешний цикл пагинации
-                    throw error; // Бросаем ошибку в основной catch-блок
-                }
-            } // конец цикла retry
-            
-            // Если успех был, но hasMore стал false в теле if (data...), выходим из while
-            if (!hasMore) break; 
-        } // конец цикла while (пагинация)
-
-        // --- ИЗМЕНЕНИЕ 3: Загружаем справочники после получения валидного токена ---
-        const allSources = await getSourcesFromListokCRM(currentAccessToken);
-        const allPasses = await getAllPasses(currentAccessToken);
-
-        // ... (Остальная логика: фильтрация, агрегация, запись в Google Sheets) ...
-
-        const start = new Date(startDate);
-        const end = new Date(endDate);
-        // Устанавливаем время end на конец дня (23:59:59.999), чтобы включить всю дату
-        end.setHours(23, 59, 59, 999);
-
-        // startD = start; // Не используем глобальные переменные
-        // endD = end; 
-
-        // Фильтрация: сначала по дате, затем по филиалу (added_office_id)
-        console.log(allContacts.length, 'столько контактов всего')
-        const filteredContacts = allContacts.filter(contact => {
-            // Проверка даты
-            if (!contact.created_at) return false;
-            const createdAt = new Date(contact.created_at);
-            const dateInRange = createdAt >= start && createdAt <= end;
-
-            let officeMatches = true
-            if(dateInRange){
-              console.log(branchId,'branchId')
-              if(branchId === 'all'){
-                officeMatches =  true
-              } 
-              else {
-                  officeMatches = contact.added_office_id == branchId;
-                } 
-            }
-
-            return dateInRange && officeMatches; // И дата, и филиал должны совпадать
-        });
-
-        for(const cont of filteredContacts){
-                      // console.log(cont.added_office_id, 'вот id')
-
-        }
-
-        console.log(`Найдено ${filteredContacts.length} контактов в указанный период и филиале. ${allSources}`);
-
-        // 4. Преобразуем отфильтрованные данные для Google Sheets
-        // const googleSheetsFormattedData = transformListokCRMDataForGoogleSheets(filteredContacts);
-        // --- ИЗМЕНЕНИЕ 4: Передаём endD как параметр в aggregateSourcesForGoogleSheets ---
-        const googleSheetsFormattedData = await aggregateSourcesForGoogleSheets(filteredContacts, allSources, currentAccessToken, end); // Передаём 'end' вместо глобальной endD
-
-        // 5. Записываем данные в Google Sheets, используя ID из тела запроса
-        await writeDataToSheet(spreadsheetId, googleSheetsFormattedData);
-
-        try {
-            const sheetId = await getSheetId(spreadsheetId);
-            await formatSheet(spreadsheetId, sheetId); 
-        } catch (formatError) {
-            console.warn('Could not auto-resize columns:', formatError.message);
-            // Продолжаем выполнение, так как запись данных прошла успешно
-        }
-        res.json({ message: `Успешно записан отчет по ${filteredContacts.length} контактам в Google Таблицу.` });
-
-    } catch (error) {
-        // Ловим все критические ошибки, включая отказ в обновлении токена
-        console.error('Final error processing filtered contacts:', error);
-        res.status(500).json({ error: 'Internal server error while processing filtered contacts or failed authentication.' });
-    }
+    // Возвращаем клиенту ID задачи
+    res.json({ taskId, message: 'Report generation started. Use /report-status/:id to check progress.' });
 });
 
+app.get('/report-status/:taskId', (req, res) => {
+  const { taskId } = req.params;
+  const task = reportTasks.get(taskId);
+
+  if (!task) {
+    return res.status(404).json({ error: 'Task not found' });
+  }
+
+  // Возвращаем статус задачи
+  res.json(task);
+});
+
+app.post('/cancel-report/:taskId', (req, res) => {
+  const { taskId } = req.params;
+  const task = reportTasks.get(taskId);
+
+  if (!task) {
+    return res.status(404).json({ error: 'Task not found' });
+  }
+
+  if (task.status === 'processing') {
+    reportTasks.set(taskId, { ...task, status: 'cancelled', message: 'Task was cancelled by user.' });
+    res.json({ message: 'Task cancellation requested.' });
+  } else {
+    res.json({ message: 'Task is not in processing state and cannot be cancelled.' });
+  }
+});
 // Функция для преобразования данных ListokCRM для Google Sheets
 function transformListokCRMDataForGoogleSheets(data) {
   if (!data || !Array.isArray(data) || data.length === 0) {
